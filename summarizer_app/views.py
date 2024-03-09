@@ -10,40 +10,50 @@ from langchain_community.document_loaders import UnstructuredURLLoader
 from langchain_community.llms import HuggingFaceHub
 import os
 
-# huggingface Token
+# setting huggingface Token
 os.environ["HUGGINGFACEHUB_API_TOKEN"]='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'
 
 
 
+# creating post method and excempting csrf to not give certificate error
 @csrf_exempt
 def post_function(request):
     if request.method == 'POST':
         try:
-            # Get the URL from the JSON body of the request
-            data = json.loads(request.body.decode('utf-8'))
-            url=data['url']
-            url_content=UnstructuredURLLoader([url]).load()
+           
+            try:
+                # fetching url and scrapping data using unstructured loader
+                data = json.loads(request.body.decode('utf-8'))
+                url=data['url']
+                url_content=UnstructuredURLLoader([url]).load()
+            except Exception as e:
+                error_message = {'error occured in fetching the url data': str(e)}
+                return JsonResponse(error_message)
 
+            try :
+                # setting up mixtral llm from huggingface
+                llm = HuggingFaceHub(
+                    repo_id="mistralai/Mixtral-8x7B-Instruct-v0.1",
+                    task="text-generation",
+                    model_kwargs={
+                        "temperature": 0.1,
+                        "repetition_penalty": 1.03,
+                    },
+                )
 
-            llm = HuggingFaceHub(
-                repo_id="mistralai/Mixtral-8x7B-Instruct-v0.1",
-                task="text-generation",
-                model_kwargs={
-                    "max_new_tokens": 1032,
-                    # "top_k": 30,
-                    "temperature": 0.5,
-                    "repetition_penalty": 1.03,
-                },
-            )
-            chain = load_summarize_chain(llm, chain_type="stuff")
-            result=chain.invoke(url_content)
-            start=result['output_text'].find('CONCISE SUMMARY:')+16
-            summary=result['output_text'][start:]
+                # creating summarize chain from langchain
+                chain = load_summarize_chain(llm, chain_type="stuff")
+                result=chain.invoke(url_content)
+                # slicing the llm summary output
+                start=result['output_text'].find('CONCISE SUMMARY:')+15
+                summary=result['output_text'][start:-1]
+            except Exception as e:
+                error_message = {'error occured in getting the summary from LLM ': str(e)}
+                return JsonResponse(error_message)
+
 
             
-
-            
-            # Return the modified URL in the response
+            # Return the summary and url in response
             response_data = {'URL':url,'summary': summary}
             return JsonResponse(response_data, status=200)
         except Exception as e:
